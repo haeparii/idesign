@@ -6,7 +6,7 @@ import os
 import io
 
 # --- 1. 설정 및 데이터 로드 ---
-st.set_page_config(page_title="idesign 교과목 팀구성", layout="wide")
+st.set_page_config(page_title="협업 문제해결 수업 팀 구성", layout="wide")
 
 DB_FILE = "students_db.csv"
 RESPONSES_FILE = "responses.json"
@@ -56,6 +56,7 @@ def load_students_db():
         df = pd.read_csv(DB_FILE, dtype={'학번': str})
     except UnicodeDecodeError:
         df = pd.read_csv(DB_FILE, encoding='cp949', dtype={'학번': str})
+    # 이메일과 학번 공백 제거
     df['E-MAIL'] = df['E-MAIL'].str.strip()
     df['학번'] = df['학번'].str.strip()
     return df
@@ -70,7 +71,7 @@ def save_responses(data):
     with open(RESPONSES_FILE, 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False, indent=4)
 
-# --- 2. 세션 초기화 ---
+# --- 2. 세션 초기화 (무작위 문항 섞기 및 상태 관리) ---
 if 'shuffled_qs' not in st.session_state:
     all_qs = [{"category": k, "question": q} for k, v in TENDENCIES.items() for q in v]
     random.shuffle(all_qs)
@@ -81,15 +82,12 @@ if 'logged_in' not in st.session_state:
     st.session_state.user_info = None
     st.session_state.is_admin = False
 
-if 'teams_result' not in st.session_state:
-    st.session_state.teams_result = None
-
 students_df = load_students_db()
 responses = load_responses()
 
 # --- 3. 로그인 화면 ---
 if not st.session_state.logged_in:
-    st.title("idesign 교과목 팀구성 설문 로그인")
+    st.title("협업 문제해결 수업 설문 로그인")
     login_type = st.radio("로그인 유형", ["학생 로그인", "관리자 로그인"])
     
     with st.form("login_form"):
@@ -105,7 +103,7 @@ if not st.session_state.logged_in:
         
         if submit_btn:
             if login_type == "관리자 로그인":
-                if input_id == "admin" and input_pw == "admin1234": 
+                if input_id == "admin" and input_pw == "admin1234":
                     st.session_state.logged_in = True
                     st.session_state.is_admin = True
                     st.rerun()
@@ -126,8 +124,13 @@ elif not st.session_state.is_admin:
     st.title(f"환영합니다, {st.session_state.user_info['이름']} 학생!")
     
     user_id = st.session_state.user_info['학번']
+    
+    # 설문을 완료한 학생에게 본인의 성향을 즉각적으로 피드백
     if user_id in responses:
-        st.success("이미 설문을 완료하셨습니다. 참여해 주셔서 감사합니다.")
+        user_tendency = responses[user_id]['성향']
+        st.success("설문 제출이 완료되었습니다. 참여해 주셔서 감사합니다.")
+        st.info(f"### 당신은 **{user_tendency}**입니다.")
+        
         if st.button("로그아웃"):
             st.session_state.logged_in = False
             st.rerun()
@@ -149,10 +152,8 @@ elif not st.session_state.is_admin:
                 if st.checkbox(item["question"]):
                     selected_qs.append(item["category"])
                     
-            # 변인 수정 반영 부분
-            career = st.text_input("라. 희망진로")
-            double_major = st.text_input("마. 희망 복수전공")
-            comments = st.text_area("바. 하고 싶은 말(요청사항)")
+            interest = st.text_input("라. 관심주제")
+            comments = st.text_area("마. 하고 싶은 말(요청사항)")
             
             submit_survey = st.form_submit_button("설문 제출")
             
@@ -160,6 +161,7 @@ elif not st.session_state.is_admin:
                 if not selected_qs:
                     st.error("조별 활동 경향 항목을 최소 1개 이상 선택해 주세요.")
                 else:
+                    # 가장 많이 선택된 성향 도출
                     tendency_counts = {k: selected_qs.count(k) for k in TENDENCIES.keys()}
                     max_tendency = max(tendency_counts, key=tendency_counts.get)
                     
@@ -170,17 +172,17 @@ elif not st.session_state.is_admin:
                         "성별": gender,
                         "MBTI": mbti,
                         "성향": max_tendency,
-                        "희망진로": career,
-                        "희망 복수전공": double_major,
+                        "관심주제": interest,
                         "하고싶은말": comments
                     }
                     save_responses(responses)
-                    st.success("제출이 완료되었습니다!")
+                    
+                    # 제출 후 즉시 화면을 새로고침하여 상단의 피드백 화면으로 전환
                     st.rerun()
 
-# --- 5. 관리자 화면 (조 편성 및 초기화 기능 포함) ---
+# --- 5. 관리자 화면 (조 편성 알고리즘 포함) ---
 else:
-    st.title("idesign 관리자 대시보드")
+    st.title("관리자 대시보드")
     
     if st.button("로그아웃"):
         st.session_state.logged_in = False
@@ -193,6 +195,7 @@ else:
         res_df = pd.DataFrame.from_dict(responses, orient='index')
         st.dataframe(res_df)
         
+        # 엑셀 다운로드
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
             res_df.to_excel(writer, index=False, sheet_name='Responses')
@@ -202,75 +205,72 @@ else:
         with col1:
             st.download_button(label="📥 엑셀로 응답내역 다운로드",
                                data=excel_data,
-                               file_name="idesign_student_responses.xlsx",
+                               file_name="student_responses.xlsx",
                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         with col2:
-            if st.button("🚨 전체 답변(응답데이터) 초기화", type="primary"):
+            if st.button("🚨 답변 초기화", type="primary"):
                 save_responses({})
-                st.session_state.teams_result = None 
                 st.rerun()
 
     st.divider()
-    st.subheader("자동 팀 편성 및 관리")
-    st.write("응답 데이터를 기반으로 10개의 팀(5명 7팀, 4명 3팀)을 구성합니다.")
-    st.write("우선순위: 성향 다양성 > 성별 비율 > E/I 비율 > 전공 다양성")
+    st.subheader("자동 팀 편성")
+    # [수정된 부분] 42명 기준, 8개 팀 구성 안내 (전공 다양성 제외)
+    st.write("응답 데이터를 기반으로 총 8개의 팀(5명 6팀, 6명 2팀)을 구성합니다.")
+    st.write("우선순위: 성향 다양성 > 성별 비율 > E/I 비율")
     
-    col_team1, col_team2 = st.columns(2)
-    with col_team1:
-        if st.button("⚙️ 팀 구성 실행"):
-            if len(responses) < 47:
-                st.warning(f"현재 응답자가 {len(responses)}명입니다. 전체 인원(47명)이 응답한 후 편성을 권장합니다.")
+    if st.button("팀 구성 실행"):
+        # [수정된 부분] 경고 기준 인원을 42명으로 축소
+        if len(responses) < 42:
+            st.warning(f"현재 응답자가 {len(responses)}명입니다. 전체 인원(42명)이 응답한 후 편성을 권장합니다.")
+            
+        # 페널티 기반 팀 편성 로직
+        students = list(responses.values())
+        random.shuffle(students) # 동일 조건일 때 편향 방지
+        
+        # [수정된 부분] 총 8팀 구성: 6팀x5명, 2팀x6명 (총 42명 배정 공간)
+        teams = [{"team_id": i+1, "members": [], "capacity": 5 if i < 6 else 6} for i in range(8)]
+        
+        for student in students:
+            best_team = None
+            min_penalty = float('inf')
+            
+            s_ei = student["MBTI"][0].upper() # E or I
+            
+            for team in teams:
+                # 해당 팀의 정원이 가득 찬 경우 건너뜀
+                if len(team["members"]) >= team["capacity"]:
+                    continue
                 
-            students = list(responses.values())
-            random.shuffle(students)
-            
-            teams = [{"team_id": i+1, "members": [], "capacity": 5 if i < 7 else 4} for i in range(10)]
-            
-            for student in students:
-                best_team = None
-                min_penalty = float('inf')
-                s_ei = student["MBTI"][0].upper()
+                penalty = 0
+                members = team["members"]
                 
-                for team in teams:
-                    if len(team["members"]) >= team["capacity"]:
-                        continue
+                # 1. 성향의 다양성 (가장 높은 페널티 가중치: 100)
+                same_tendency = sum(1 for m in members if m["성향"] == student["성향"])
+                penalty += same_tendency * 100
+                
+                # 2. 성별 쏠림 방지 (가중치: 50)
+                same_gender = sum(1 for m in members if m["성별"] == student["성별"])
+                penalty += same_gender * 50
+                
+                # 3. MBTI E/I 균형 (가중치: 30)
+                same_ei = sum(1 for m in members if m["MBTI"][0].upper() == s_ei)
+                penalty += same_ei * 30
+                
+                # [수정된 부분] 전공(소속) 중복에 대한 페널티 계산 로직 완전히 제거
+                
+                if penalty < min_penalty:
+                    min_penalty = penalty
+                    best_team = team
                     
-                    penalty = 0
-                    members = team["members"]
-                    
-                    same_tendency = sum(1 for m in members if m["성향"] == student["성향"])
-                    penalty += same_tendency * 100
-                    
-                    same_gender = sum(1 for m in members if m["성별"] == student["성별"])
-                    penalty += same_gender * 50
-                    
-                    same_ei = sum(1 for m in members if m["MBTI"][0].upper() == s_ei)
-                    penalty += same_ei * 30
-                    
-                    same_major = sum(1 for m in members if m["소속"] == student["소속"])
-                    penalty += same_major * 10
-                    
-                    if penalty < min_penalty:
-                        min_penalty = penalty
-                        best_team = team
-                        
-                if best_team is not None:
-                    best_team["members"].append(student)
-            
-            st.session_state.teams_result = teams
-            st.rerun()
-
-    with col_team2:
-        if st.button("🔄 팀 구성 초기화"):
-            st.session_state.teams_result = None
-            st.rerun()
-
-    if st.session_state.teams_result is not None:
-        st.success("팀 편성이 완료되었습니다! (아래 결과를 확인하세요)")
-        for team in st.session_state.teams_result:
+            if best_team is not None:
+                best_team["members"].append(student)
+                
+        # 결과 출력
+        st.success("팀 편성이 완료되었습니다!")
+        for team in teams:
             with st.expander(f"Team {team['team_id']} (인원: {len(team['members'])}명)"):
                 if team["members"]:
-                    team_df = pd.DataFrame(team["members"])[["이름", "소속", "성별", "MBTI", "성향", "희망진로", "희망 복수전공"]]
+                    team_df = pd.DataFrame(team["members"])[["이름", "소속", "성별", "MBTI", "성향"]]
                     st.table(team_df)
                 else:
                     st.write("배정된 인원이 없습니다.")

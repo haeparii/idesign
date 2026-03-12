@@ -4,6 +4,7 @@ import random
 import json
 import os
 import io
+import time
 
 # --- 1. 설정 및 데이터 로드 ---
 st.set_page_config(page_title="idesign 교과목 팀구성", layout="wide")
@@ -30,7 +31,7 @@ TENDENCIES = {
     "아나운서형": [
         "완성된 자료를 바탕으로 깔끔하게 대본을 작성하는 것에 자신 있다.",
         "여러 사람 앞에서 긴장하지 않고 말을 조리 있게 잘한다.",
-        "복잡한 내용을 시각 자료와 함께 타인에게 쉽게 설명할 수 있다.",
+        "복잡한 내용을 시각 자료와 함께 타인에게 쉽게 설명할 수 기 있다.",
         "발표 후 이어지는 질의응답에 순발력 있게 대처한다.",
         "비언어적 표현을 활용해 청중을 설득하는 것을 좋아한다."
     ],
@@ -128,8 +129,11 @@ elif not st.session_state.is_admin:
     st.title(f"환영합니다, {st.session_state.user_info['이름']} 학생!")
     
     user_id = st.session_state.user_info['학번']
+    
+    # [수정됨: 이미 제출한 학생이 로그인했을 때 유형 확인]
     if user_id in responses:
-        st.success("이미 설문을 완료하셨습니다. 참여해 주셔서 감사합니다.")
+        my_tendency = responses[user_id].get("성향", "")
+        st.success(f"이미 설문을 완료하셨습니다. 당신은 **{my_tendency}**입니다. 참여해 주셔서 감사합니다.")
         if st.button("로그아웃"):
             st.session_state.logged_in = False
             st.rerun()
@@ -175,7 +179,11 @@ elif not st.session_state.is_admin:
                         "하고싶은말": comments
                     }
                     save_responses(responses)
-                    st.success("제출이 완료되었습니다!")
+                    
+                    # [수정됨: 제출 완료 시 결과 안내 및 딜레이]
+                    st.success(f"제출이 완료되었습니다! 당신은 **{max_tendency}**입니다.")
+                    st.balloons()
+                    time.sleep(2) # 학생들이 결과를 읽을 수 있도록 잠시 대기
                     st.rerun()
 
 # --- 5. 관리자 화면 ---

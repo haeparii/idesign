@@ -74,13 +74,12 @@ def save_responses(data):
         json.dump(data, f, ensure_ascii=False, indent=4)
 
 # --- 2. 세션 초기화 및 문항 셔플 ---
-# 문항을 카테고리 상관없이 완전히 뒤섞음
 if 'shuffled_qs' not in st.session_state:
     all_qs = []
     for category, questions in TENDENCIES.items():
         for q in questions:
             all_qs.append({"category": category, "question": q})
-    random.shuffle(all_qs) # 완전 무작위 셔플
+    random.shuffle(all_qs) 
     st.session_state.shuffled_qs = all_qs
 
 if 'logged_in' not in st.session_state:
@@ -134,7 +133,6 @@ elif not st.session_state.is_admin:
     
     user_id = st.session_state.user_info['학번']
     
-    # 이미 제출한 학생이 다시 로그인했을 때 본인의 성향을 보여줌
     if user_id in responses:
         my_tendency = responses[user_id].get("성향", "")
         st.success(f"이미 설문을 완료하셨습니다. 당신은 **[{my_tendency}]**입니다. 참여해 주셔서 감사합니다.")
@@ -155,7 +153,6 @@ elif not st.session_state.is_admin:
             st.write("본인에게 해당한다고 생각되는 항목을 모두 선택해 주세요.")
             
             selected_categories = []
-            # 셔플된 문항 리스트 사용
             for item in st.session_state.shuffled_qs:
                 if st.checkbox(item["question"]):
                     selected_categories.append(item["category"])
@@ -170,7 +167,6 @@ elif not st.session_state.is_admin:
                 if not selected_categories:
                     st.error("조별 활동 경향 항목을 최소 1개 이상 선택해 주세요.")
                 else:
-                    # 성향 판별 로직
                     from collections import Counter
                     counts = Counter(selected_categories)
                     max_tendency = counts.most_common(1)[0][0]
@@ -178,7 +174,7 @@ elif not st.session_state.is_admin:
                     responses[user_id] = {
                         "이름": st.session_state.user_info['이름'],
                         "학번": user_id,
-                        "소속": st.session_state.user_info.get('소속', '기타'), # 소속 학과 데이터 추가
+                        "소속": st.session_state.user_info.get('소속', '기타'), 
                         "성별": gender,
                         "MBTI": mbti,
                         "성향": max_tendency,
@@ -188,10 +184,9 @@ elif not st.session_state.is_admin:
                     }
                     save_responses(responses)
                     
-                    # 제출 완료 시 결과 안내
                     st.success(f"제출이 완료되었습니다! 당신은 **[{max_tendency}]**입니다.")
                     st.balloons()
-                    time.sleep(3) # 결과를 확인할 시간 부여
+                    time.sleep(3) 
                     st.rerun()
 
 # --- 5. 관리자 화면 (42명/8개조 설정 유지) ---
@@ -207,9 +202,11 @@ else:
         st.info("아직 응답한 학생이 없습니다.")
     else:
         res_df = pd.DataFrame.from_dict(responses, orient='index')
-        # 열 순서 조정 (소속 학과를 이름 뒤에 배치)
+        
+        # [수정] reindex를 사용하여 특정 열이 없더라도 에러 없이 빈 컬럼으로 생성
         cols = ['이름', '소속', '학번', '성별', 'MBTI', '성향', '희망진로', '희망 복수전공', '하고싶은말']
-        res_df = res_df[cols]
+        res_df = res_df.reindex(columns=cols).fillna("") # 없는 데이터는 빈칸 처리
+        
         st.dataframe(res_df)
         
         output = io.BytesIO()
@@ -246,7 +243,6 @@ else:
                 students = list(responses.values())
                 random.shuffle(students)
                 
-                # 5명씩 6개조, 6명씩 2개조 구성 (총 8개조)
                 teams = [{"team_id": i+1, "members": [], "capacity": 5 if i < 6 else 6} for i in range(8)]
                 
                 for student in students:
@@ -261,16 +257,13 @@ else:
                         penalty = 0
                         members = team["members"]
                         
-                        # 성향 다양성 (가장 높은 우선순위)
-                        same_tendency = sum(1 for m in members if m["성향"] == student["성향"])
+                        same_tendency = sum(1 for m in members if m.get("성향") == student.get("성향"))
                         penalty += same_tendency * 100
                         
-                        # 성별 비율
-                        same_gender = sum(1 for m in members if m["성별"] == student["성별"])
+                        same_gender = sum(1 for m in members if m.get("성별") == student.get("성별"))
                         penalty += same_gender * 50
                         
-                        # E/I 비율
-                        same_ei = sum(1 for m in members if m["MBTI"][0].upper() == s_ei)
+                        same_ei = sum(1 for m in members if m.get("MBTI", " ")[0].upper() == s_ei)
                         penalty += same_ei * 30
                         
                         if penalty < min_penalty:
@@ -291,14 +284,15 @@ else:
             else:
                 st.warning("초기화할 팀 편성 결과가 없습니다.")
 
-    # 팀 구성 결과 출력
     if st.session_state.teams_result is not None:
         st.success("팀 편성이 완료되었습니다! (5인 6개조, 6인 2개조)")
         for team in st.session_state.teams_result:
             with st.expander(f"Team {team['team_id']} (인원: {len(team['members'])}명)"):
                 if team["members"]:
-                    # 팀 결과 테이블에도 소속(학과) 정보 추가
-                    team_df = pd.DataFrame(team["members"])[["이름", "소속", "성별", "MBTI", "성향", "희망진로", "희망 복수전공"]]
+                    # [수정] 팀 편성 결과 테이블도 reindex 처리하여 안전하게 소속 정보 출력
+                    team_df = pd.DataFrame(team["members"])
+                    res_cols = ["이름", "소속", "성별", "MBTI", "성향", "희망진로", "희망 복수전공"]
+                    team_df = team_df.reindex(columns=res_cols).fillna("")
                     st.table(team_df)
                 else:
                     st.write("배정된 인원이 없습니다.")

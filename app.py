@@ -56,6 +56,8 @@ def load_students_db():
         df = pd.read_csv(DB_FILE, dtype={'학번': str})
     except UnicodeDecodeError:
         df = pd.read_csv(DB_FILE, encoding='cp949', dtype={'학번': str})
+    # 컬럼명 전처리
+    df.columns = df.columns.str.strip()
     df['E-MAIL'] = df['E-MAIL'].str.strip()
     df['학번'] = df['학번'].str.strip()
     return df
@@ -149,7 +151,6 @@ elif not st.session_state.is_admin:
                 if st.checkbox(item["question"]):
                     selected_qs.append(item["category"])
                     
-            # 변인 수정 반영 부분
             career = st.text_input("라. 희망진로")
             double_major = st.text_input("마. 희망 복수전공")
             comments = st.text_area("바. 하고 싶은 말(요청사항)")
@@ -166,7 +167,6 @@ elif not st.session_state.is_admin:
                     responses[user_id] = {
                         "이름": st.session_state.user_info['이름'],
                         "학번": user_id,
-                        "소속": st.session_state.user_info['소속'],
                         "성별": gender,
                         "MBTI": mbti,
                         "성향": max_tendency,
@@ -178,7 +178,7 @@ elif not st.session_state.is_admin:
                     st.success("제출이 완료되었습니다!")
                     st.rerun()
 
-# --- 5. 관리자 화면 (조 편성 및 초기화 기능 포함) ---
+# --- 5. 관리자 화면 ---
 else:
     st.title("idesign 관리자 대시보드")
     
@@ -212,65 +212,73 @@ else:
 
     st.divider()
     st.subheader("자동 팀 편성 및 관리")
-    st.write("응답 데이터를 기반으로 10개의 팀(5명 7팀, 4명 3팀)을 구성합니다.")
-    st.write("우선순위: 성향 다양성 > 성별 비율 > E/I 비율 > 전공 다양성")
+    st.write("응답 데이터를 기반으로 **총 8개의 팀(5명 6개조, 6명 2개조)**을 구성합니다.")
+    st.write("우선순위: 성향 다양성 > 성별 비율 > E/I 비율")
     
     col_team1, col_team2 = st.columns(2)
     with col_team1:
         if st.button("⚙️ 팀 구성 실행"):
-            if len(responses) < 47:
-                st.warning(f"현재 응답자가 {len(responses)}명입니다. 전체 인원(47명)이 응답한 후 편성을 권장합니다.")
+            if not responses:
+                st.error("응답 데이터가 부족하여 팀을 구성할 수 없습니다.")
+            else:
+                if len(responses) < 42:
+                    st.warning(f"현재 응답자가 {len(responses)}명입니다. 전체 인원(42명)이 응답한 후 편성을 권장합니다.")
+                    
+                students = list(responses.values())
+                random.shuffle(students)
                 
-            students = list(responses.values())
-            random.shuffle(students)
-            
-            teams = [{"team_id": i+1, "members": [], "capacity": 5 if i < 7 else 4} for i in range(10)]
-            
-            for student in students:
-                best_team = None
-                min_penalty = float('inf')
-                s_ei = student["MBTI"][0].upper()
+                # 5명씩 6개조, 6명씩 2개조 구성 (총 8개조)
+                teams = [{"team_id": i+1, "members": [], "capacity": 5 if i < 6 else 6} for i in range(8)]
                 
-                for team in teams:
-                    if len(team["members"]) >= team["capacity"]:
-                        continue
+                for student in students:
+                    best_team = None
+                    min_penalty = float('inf')
+                    s_ei = student["MBTI"][0].upper()
                     
-                    penalty = 0
-                    members = team["members"]
-                    
-                    same_tendency = sum(1 for m in members if m["성향"] == student["성향"])
-                    penalty += same_tendency * 100
-                    
-                    same_gender = sum(1 for m in members if m["성별"] == student["성별"])
-                    penalty += same_gender * 50
-                    
-                    same_ei = sum(1 for m in members if m["MBTI"][0].upper() == s_ei)
-                    penalty += same_ei * 30
-                    
-                    same_major = sum(1 for m in members if m["소속"] == student["소속"])
-                    penalty += same_major * 10
-                    
-                    if penalty < min_penalty:
-                        min_penalty = penalty
-                        best_team = team
+                    for team in teams:
+                        if len(team["members"]) >= team["capacity"]:
+                            continue
                         
-                if best_team is not None:
-                    best_team["members"].append(student)
-            
-            st.session_state.teams_result = teams
-            st.rerun()
+                        penalty = 0
+                        members = team["members"]
+                        
+                        # 성향 다양성 (가장 높은 우선순위)
+                        same_tendency = sum(1 for m in members if m["성향"] == student["성향"])
+                        penalty += same_tendency * 100
+                        
+                        # 성별 비율
+                        same_gender = sum(1 for m in members if m["성별"] == student["성별"])
+                        penalty += same_gender * 50
+                        
+                        # E/I 비율
+                        same_ei = sum(1 for m in members if m["MBTI"][0].upper() == s_ei)
+                        penalty += same_ei * 30
+                        
+                        if penalty < min_penalty:
+                            min_penalty = penalty
+                            best_team = team
+                            
+                    if best_team is not None:
+                        best_team["members"].append(student)
+                
+                st.session_state.teams_result = teams
+                st.rerun()
 
     with col_team2:
         if st.button("🔄 팀 구성 초기화"):
-            st.session_state.teams_result = None
-            st.rerun()
+            if st.session_state.teams_result is not None:
+                st.session_state.teams_result = None
+                st.rerun()
+            else:
+                st.warning("초기화할 팀 편성 결과가 없습니다.")
 
+    # 팀 구성 결과 출력
     if st.session_state.teams_result is not None:
-        st.success("팀 편성이 완료되었습니다! (아래 결과를 확인하세요)")
+        st.success("팀 편성이 완료되었습니다! (5인 6개조, 6인 2개조)")
         for team in st.session_state.teams_result:
             with st.expander(f"Team {team['team_id']} (인원: {len(team['members'])}명)"):
                 if team["members"]:
-                    team_df = pd.DataFrame(team["members"])[["이름", "소속", "성별", "MBTI", "성향", "희망진로", "희망 복수전공"]]
+                    team_df = pd.DataFrame(team["members"])[["이름", "성별", "MBTI", "성향", "희망진로", "희망 복수전공"]]
                     st.table(team_df)
                 else:
                     st.write("배정된 인원이 없습니다.")

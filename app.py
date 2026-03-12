@@ -12,7 +12,7 @@ st.set_page_config(page_title="idesign 교과목 팀구성", layout="wide")
 DB_FILE = "students_db.csv"
 RESPONSES_FILE = "responses.json"
 
-# 하위 질문 정의
+# 하위 질문 정의 (원본 데이터)
 TENDENCIES = {
     "리더형": [
         "과제가 주어지면 전체적인 목차나 방향성을 먼저 기획한다.",
@@ -31,7 +31,7 @@ TENDENCIES = {
     "아나운서형": [
         "완성된 자료를 바탕으로 깔끔하게 대본을 작성하는 것에 자신 있다.",
         "여러 사람 앞에서 긴장하지 않고 말을 조리 있게 잘한다.",
-        "복잡한 내용을 시각 자료와 함께 타인에게 쉽게 설명할 수 기 있다.",
+        "복잡한 내용을 시각 자료와 함께 타인에게 쉽게 설명할 수 있다.",
         "발표 후 이어지는 질의응답에 순발력 있게 대처한다.",
         "비언어적 표현을 활용해 청중을 설득하는 것을 좋아한다."
     ],
@@ -57,7 +57,7 @@ def load_students_db():
         df = pd.read_csv(DB_FILE, dtype={'학번': str})
     except UnicodeDecodeError:
         df = pd.read_csv(DB_FILE, encoding='cp949', dtype={'학번': str})
-    # 컬럼명 전처리
+    # 컬럼명 및 데이터 전처리
     df.columns = df.columns.str.strip()
     df['E-MAIL'] = df['E-MAIL'].str.strip()
     df['학번'] = df['학번'].str.strip()
@@ -73,10 +73,14 @@ def save_responses(data):
     with open(RESPONSES_FILE, 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False, indent=4)
 
-# --- 2. 세션 초기화 ---
+# --- 2. 세션 초기화 및 문항 셔플 ---
+# 문항을 카테고리 상관없이 완전히 뒤섞음
 if 'shuffled_qs' not in st.session_state:
-    all_qs = [{"category": k, "question": q} for k, v in TENDENCIES.items() for q in v]
-    random.shuffle(all_qs)
+    all_qs = []
+    for category, questions in TENDENCIES.items():
+        for q in questions:
+            all_qs.append({"category": category, "question": q})
+    random.shuffle(all_qs) # 완전 무작위 셔플
     st.session_state.shuffled_qs = all_qs
 
 if 'logged_in' not in st.session_state:
@@ -130,15 +134,15 @@ elif not st.session_state.is_admin:
     
     user_id = st.session_state.user_info['학번']
     
-    # [수정됨: 이미 제출한 학생이 로그인했을 때 유형 확인]
+    # 이미 제출한 학생이 다시 로그인했을 때 본인의 성향을 보여줌
     if user_id in responses:
         my_tendency = responses[user_id].get("성향", "")
-        st.success(f"이미 설문을 완료하셨습니다. 당신은 **{my_tendency}**입니다. 참여해 주셔서 감사합니다.")
+        st.success(f"이미 설문을 완료하셨습니다. 당신은 **[{my_tendency}]**입니다. 참여해 주셔서 감사합니다.")
         if st.button("로그아웃"):
             st.session_state.logged_in = False
             st.rerun()
     else:
-        st.write("아래 설문을 작성하여 제출해 주세요.")
+        st.write("아래 설문을 작성하여 제출해 주세요. (문항은 무작위 순서로 배치됩니다.)")
         
         with st.form("survey_form"):
             gender = st.radio("가. 성별", ["남성", "여성"])
@@ -150,10 +154,11 @@ elif not st.session_state.is_admin:
             st.markdown("### 다. 조별 활동에 있어 나의 경향")
             st.write("본인에게 해당한다고 생각되는 항목을 모두 선택해 주세요.")
             
-            selected_qs = []
+            selected_categories = []
+            # 셔플된 문항 리스트 사용
             for item in st.session_state.shuffled_qs:
                 if st.checkbox(item["question"]):
-                    selected_qs.append(item["category"])
+                    selected_categories.append(item["category"])
                     
             career = st.text_input("라. 희망진로")
             double_major = st.text_input("마. 희망 복수전공")
@@ -162,11 +167,13 @@ elif not st.session_state.is_admin:
             submit_survey = st.form_submit_button("설문 제출")
             
             if submit_survey:
-                if not selected_qs:
+                if not selected_categories:
                     st.error("조별 활동 경향 항목을 최소 1개 이상 선택해 주세요.")
                 else:
-                    tendency_counts = {k: selected_qs.count(k) for k in TENDENCIES.keys()}
-                    max_tendency = max(tendency_counts, key=tendency_counts.get)
+                    # 성향 판별 로직
+                    from collections import Counter
+                    counts = Counter(selected_categories)
+                    max_tendency = counts.most_common(1)[0][0]
                     
                     responses[user_id] = {
                         "이름": st.session_state.user_info['이름'],
@@ -180,13 +187,13 @@ elif not st.session_state.is_admin:
                     }
                     save_responses(responses)
                     
-                    # [수정됨: 제출 완료 시 결과 안내 및 딜레이]
-                    st.success(f"제출이 완료되었습니다! 당신은 **{max_tendency}**입니다.")
+                    # 제출 완료 시 결과 안내
+                    st.success(f"제출이 완료되었습니다! 당신은 **[{max_tendency}]**입니다.")
                     st.balloons()
-                    time.sleep(2) # 학생들이 결과를 읽을 수 있도록 잠시 대기
+                    time.sleep(3) # 결과를 확인할 시간 부여
                     st.rerun()
 
-# --- 5. 관리자 화면 ---
+# --- 5. 관리자 화면 (42명/8개조 설정 유지) ---
 else:
     st.title("idesign 관리자 대시보드")
     
@@ -210,7 +217,7 @@ else:
         with col1:
             st.download_button(label="📥 엑셀로 응답내역 다운로드",
                                data=excel_data,
-                               file_name="idesign_student_responses.xlsx",
+                               file_name="idesign_responses.xlsx",
                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         with col2:
             if st.button("🚨 전체 답변(응답데이터) 초기화", type="primary"):

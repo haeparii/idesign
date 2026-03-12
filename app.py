@@ -178,6 +178,7 @@ elif not st.session_state.is_admin:
                     responses[user_id] = {
                         "이름": st.session_state.user_info['이름'],
                         "학번": user_id,
+                        "소속": st.session_state.user_info.get('소속', '기타'), # 소속 학과 데이터 추가
                         "성별": gender,
                         "MBTI": mbti,
                         "성향": max_tendency,
@@ -206,6 +207,9 @@ else:
         st.info("아직 응답한 학생이 없습니다.")
     else:
         res_df = pd.DataFrame.from_dict(responses, orient='index')
+        # 열 순서 조정 (소속 학과를 이름 뒤에 배치)
+        cols = ['이름', '소속', '학번', '성별', 'MBTI', '성향', '희망진로', '희망 복수전공', '하고싶은말']
+        res_df = res_df[cols]
         st.dataframe(res_df)
         
         output = io.BytesIO()
@@ -293,7 +297,8 @@ else:
         for team in st.session_state.teams_result:
             with st.expander(f"Team {team['team_id']} (인원: {len(team['members'])}명)"):
                 if team["members"]:
-                    team_df = pd.DataFrame(team["members"])[["이름", "성별", "MBTI", "성향", "희망진로", "희망 복수전공"]]
+                    # 팀 결과 테이블에도 소속(학과) 정보 추가
+                    team_df = pd.DataFrame(team["members"])[["이름", "소속", "성별", "MBTI", "성향", "희망진로", "희망 복수전공"]]
                     st.table(team_df)
                 else:
                     st.write("배정된 인원이 없습니다.")
